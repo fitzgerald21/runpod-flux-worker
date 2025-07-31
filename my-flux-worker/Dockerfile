@@ -1,13 +1,14 @@
-# Use a currently available and stable Runpod PyTorch image as a base
-FROM runpod/pytorch:2.2.1-py3.11-cuda12.1.1-devel
+# Use a currently available and stable NVIDIA PyTorch image as a base
+FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-devel
 
 # Set the working directory
 WORKDIR /
 
 # --- Step 1: Install System Dependencies ---
+# We need to install sudo and other tools as this is a more minimal base image.
 RUN echo "Starting Step 1: Installing system dependencies with apt-get" && \
     apt-get update && \
-    apt-get install -y git wget libgl1-mesa-glx libglib2.0-0 && \
+    apt-get install -y git wget libgl1-mesa-glx libglib2.0-0 sudo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
     echo "Finished Step 1."
