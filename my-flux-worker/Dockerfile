@@ -1,4 +1,4 @@
-# Use a currently available and stable NVIDIA PyTorch image as a base
+# Use a currently available and stable NVIDIA PyTorch image as a base 
 FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-devel
 
 WORKDIR /
