@@ -20,16 +20,11 @@ WORKDIR /ComfyUI
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- Model Downloads ---
-# Download the necessary models for the FLUX.1-kontext workflow
-# UNET Model
-RUN wget -O /ComfyUI/models/unet/flux1-dev-kontext_fp8_scaled.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/flux1-dev-kontext_fp8_scaled.safetensors
-
-# Text Encoders (CLIP and T5)
-RUN wget -O /ComfyUI/models/clip/t5xxl_fp16.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/t5xxl_fp16.safetensors
-RUN wget -O /ComfyUI/models/clip/clip_l.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/clip_l.safetensors
-
-# VAE Model
-RUN wget -O /ComfyUI/models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/ae.safetensors
+# Download all models in a single RUN command to improve layer caching and reduce timeout risks
+RUN wget -O ./models/unet/flux1-dev-kontext_fp8_scaled.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/flux1-dev-kontext_fp8_scaled.safetensors && \
+    wget -O ./models/clip/t5xxl_fp16.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/t5xxl_fp16.safetensors && \
+    wget -O ./models/clip/clip_l.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/clip_l.safetensors && \
+    wget -O ./models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/ae.safetensors
 
 # Switch back to the root directory for the worker code
 WORKDIR /
