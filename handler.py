@@ -5,33 +5,32 @@ import torch
 import runpod
 from PIL import Image
 from diffusers import FluxKontextPipeline
-import bitsandbytes # Although not explicitly called, it's needed for fp8
+import bitsandbytes
 
 # --- Global Scope: Model and Pipeline Initialization ---
 PIPELINE = None
+# Define the local path where the model was saved during the build
+LOCAL_MODEL_PATH = "/app/huggingface_cache"
 
 def initialize_pipeline():
     """
-    Loads the model and pipeline into memory and moves it to the GPU.
-    This function is called once per worker cold start.
+    Loads the pre-downloaded model from the local filesystem into memory.
     """
     global PIPELINE
-    cache_dir = "/app/huggingface_cache"
-    os.makedirs(cache_dir, exist_ok=True)
-
-    # Correct model ID for the FP8 version
-    model_id = "black-forest-labs/FLUX.1-kontext-dev-fp8"
     
-    print(f"Initializing pipeline for model: {model_id}...")
+    print(f"Initializing pipeline from local path: {LOCAL_MODEL_PATH}...")
     try:
-        # Load the pipeline. For FP8 models, we don't need to specify torch_dtype.
+        # Check if the model path exists
+        if not os.path.exists(LOCAL_MODEL_PATH):
+             raise RuntimeError(f"Model path not found: {LOCAL_MODEL_PATH}. The model was not baked into the image correctly.")
+
         pipe = FluxKontextPipeline.from_pretrained(
-            model_id,
-            cache_dir=cache_dir
+            LOCAL_MODEL_PATH,
+            local_files_only=True # This is crucial, it prevents any network access
         )
         pipe.to("cuda")
         PIPELINE = pipe
-        print("Pipeline initialized successfully and moved to GPU.")
+        print("Pipeline initialized successfully from local files and moved to GPU.")
     except Exception as e:
         print(f"Fatal error during pipeline initialization: {e}")
         PIPELINE = None
@@ -69,13 +68,11 @@ def handler(job):
     seed = job_input.get('seed', 42)
     generator = torch.Generator(device="cuda").manual_seed(seed)
     
-    # Get width/height and resize the input image
     width = job_input.get('width', 1024)
     height = job_input.get('height', 1024)
     
     print(f"Resizing input image to {width}x{height}")
     image_input = image_input.resize((width, height), Image.Resampling.LANCZOS)
-
 
     print(f"Running inference with prompt: '{prompt}'")
     
@@ -89,7 +86,6 @@ def handler(job):
             generator=generator
         ).images
         
-        # The pipeline returns a list of images, we'll take the first one.
         result_image = result_images[0]
 
     except Exception as e:
