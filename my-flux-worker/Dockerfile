@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the Python dependencies list into the container
-COPY requirements.txt.
+COPY requirements.txt .
 
 # Install the Python packages
 # --no-cache-dir reduces image size by not storing the pip cache
@@ -23,7 +23,7 @@ COPY requirements.txt.
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy the rest of the application code into the container
-COPY..
+COPY . .
 
 # Command to run the worker script when the container starts
 # The -u flag ensures that Python output is unbuffered and streams to logs immediately
