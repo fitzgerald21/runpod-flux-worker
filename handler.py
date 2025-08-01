@@ -5,9 +5,9 @@ import torch
 import runpod
 from PIL import Image
 from diffusers import FluxKontextPipeline
+import bitsandbytes # Although not explicitly called, it's needed for fp8
 
 # --- Global Scope: Model and Pipeline Initialization ---
-# This code runs only once when a new worker instance starts.
 PIPELINE = None
 
 def initialize_pipeline():
@@ -16,22 +16,17 @@ def initialize_pipeline():
     This function is called once per worker cold start.
     """
     global PIPELINE
-    # Set a local cache directory within the container.
-    # This is good practice for Hugging Face models.
     cache_dir = "/app/huggingface_cache"
     os.makedirs(cache_dir, exist_ok=True)
 
-    # The model identifier for the Nunchaku-quantized version of Flux Kontext.
-    model_id = "nunchaku-tech/nunchaku-flux.1-kontext-dev"
+    # Correct model ID for the FP8 version
+    model_id = "black-forest-labs/FLUX.1-kontext-dev-fp8"
     
-    # Use bfloat16 for a good balance of performance and precision on modern GPUs.
-    torch_dtype = torch.bfloat16
-
     print(f"Initializing pipeline for model: {model_id}...")
     try:
+        # Load the pipeline. For FP8 models, we don't need to specify torch_dtype.
         pipe = FluxKontextPipeline.from_pretrained(
             model_id,
-            torch_dtype=torch_dtype,
             cache_dir=cache_dir
         )
         pipe.to("cuda")
@@ -39,15 +34,12 @@ def initialize_pipeline():
         print("Pipeline initialized successfully and moved to GPU.")
     except Exception as e:
         print(f"Fatal error during pipeline initialization: {e}")
-        # If initialization fails, the worker cannot process jobs.
-        # The error will be logged, and the worker may be terminated.
         PIPELINE = None
 
 # --- Handler Function: Processing a Single Job ---
 def handler(job):
     """
     This function is called for each incoming API request.
-    It expects a job input containing a base64 encoded image and a text prompt.
     """
     if PIPELINE is None:
         return {
@@ -66,29 +58,40 @@ def handler(job):
 
     # --- Input Processing ---
     try:
-        # Decode the base64 string into bytes, then open as a PIL Image
         image_bytes = base64.b64decode(base64_image)
         image_input = Image.open(BytesIO(image_bytes)).convert("RGB")
     except Exception as e:
         return {"error": f"Failed to decode or open base64 image: {e}"}
 
     # --- Inference Parameters ---
-    # Use provided parameters or fall back to sensible defaults.
     guidance_scale = job_input.get('guidance_scale', 5.0)
     num_inference_steps = job_input.get('num_inference_steps', 20)
-    generator = torch.Generator(device="cuda").manual_seed(job_input.get('seed', 42))
+    seed = job_input.get('seed', 42)
+    generator = torch.Generator(device="cuda").manual_seed(seed)
+    
+    # Get width/height and resize the input image
+    width = job_input.get('width', 1024)
+    height = job_input.get('height', 1024)
+    
+    print(f"Resizing input image to {width}x{height}")
+    image_input = image_input.resize((width, height), Image.Resampling.LANCZOS)
+
 
     print(f"Running inference with prompt: '{prompt}'")
     
     # --- Inference Execution ---
     try:
-        result_image = PIPELINE(
+        result_images = PIPELINE(
             prompt=prompt,
             image=image_input,
             guidance_scale=guidance_scale,
             num_inference_steps=num_inference_steps,
             generator=generator
         ).images
+        
+        # The pipeline returns a list of images, we'll take the first one.
+        result_image = result_images[0]
+
     except Exception as e:
         print(f"Error during model inference: {e}")
         return {"error": f"An error occurred during inference: {e}"}
@@ -96,16 +99,12 @@ def handler(job):
     print("Inference completed successfully.")
 
     # --- Output Processing ---
-    # Convert the output PIL Image back to a base64 string for JSON response.
     buffered = BytesIO()
     result_image.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # --- Return Result ---
     return {"image_base64": img_str}
 
 # --- Start the Serverless Worker ---
-# Initialize the pipeline first before starting the server.
 initialize_pipeline()
-# Register the handler function with the RunPod SDK.
 runpod.serverless.start({"handler": handler})
