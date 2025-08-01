@@ -1,32 +1,30 @@
-# Start from a base image provided by the runpod-workers-comfyui project.
-# This image contains a clean ComfyUI installation and the necessary runpod handler setup.
-FROM runpod/worker-comfyui:latest-base
+# Use an official RunPod PyTorch base image for compatibility and speed
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 
-# Switch to root user to install packages
-USER root
+# Set environment variables to prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
-# Install wget, a tool for downloading files from the web
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+# Update package lists and install essential system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch back to the default user
-USER 1000
+# Set the working directory inside the container
+WORKDIR /app
 
-# Set the working directory to the ComfyUI installation
-WORKDIR /app/ComfyUI
+# Copy the Python dependencies list into the container
+COPY requirements.txt.
 
-# Create the necessary model directories if they don't exist
-RUN mkdir -p models/diffusion_models models/clip models/t5 models/vae
+# Install the Python packages
+# --no-cache-dir reduces image size by not storing the pip cache
+# --prefer-binary can speed up installation for packages with pre-compiled wheels
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
-# Download the FLUX Kontext FP8 UNet model
-RUN wget -O models/diffusion_models/flux1-kontext-dev-fp8-e4m3fn.safetensors https://huggingface.co/6chan/flux1-kontext-dev-fp8/resolve/main/flux1-kontext-dev-fp8-e4m3fn.safetensors
+# Copy the rest of the application code into the container
+COPY..
 
-# Download the CLIP-L text encoder
-RUN wget -O models/clip/clip_l.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors
-
-# Download the T5-XXL text encoder (FP8 version)
-RUN wget -O models/t5/t5xxl_fp8_e4m3fn_scaled.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors
-
-# Download the VAE model
-RUN wget -O models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev/resolve/main/ae.safetensors
-
-# The base image has an entrypoint that will automatically start the RunPod handler script.
+# Command to run the worker script when the container starts
+# The -u flag ensures that Python output is unbuffered and streams to logs immediately
+CMD ["python", "-u", "handler.py"]
