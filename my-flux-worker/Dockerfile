@@ -1,35 +1,32 @@
-# Use a currently available and stable NVIDIA PyTorch image as a base
-FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-devel
+# Start from a base image provided by the runpod-workers-comfyui project.
+# This image contains a clean ComfyUI installation and the necessary runpod handler setup.
+FROM runpod/worker-comfyui:latest-base
 
-# --- Step 1: Copy worker code FIRST ---
-WORKDIR /
-COPY ./src /src
-COPY ./workflow_api.json /workflow_api.json
+# Switch to root user to install packages
+USER root
 
-# --- Step 2: Install System Dependencies ---
-RUN apt-get update && \
-    apt-get install -y git wget libgl1-mesa-glx libglib2.0-0 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install wget, a tool for downloading files from the web
+RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 
-# --- Step 3: Clone ComfyUI Repository ---
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git
+# Switch back to the default user
+USER 1000
 
-# Set the working directory to ComfyUI for its setup
-WORKDIR /ComfyUI
+# Set the working directory to the ComfyUI installation
+WORKDIR /app/ComfyUI
 
-# --- Step 4: Install Python Dependencies ---
-RUN pip install --no-cache-dir -r requirements.txt
+# Create the necessary model directories if they don't exist
+RUN mkdir -p models/diffusion_models models/clip models/t5 models/vae
 
-# --- NEW Step 4a: Install FLUX Custom Nodes ---
-# This is the critical missing step. These nodes are required for the workflow.
-RUN git clone https://github.com/comfyanonymous/comfy-flux-nodes.git ./custom_nodes/comfy-flux-nodes
+# Download the FLUX Kontext FP8 UNet model
+RUN wget -O models/diffusion_models/flux1-kontext-dev-fp8-e4m3fn.safetensors https://huggingface.co/6chan/flux1-kontext-dev-fp8/resolve/main/flux1-kontext-dev-fp8-e4m3fn.safetensors
 
-# --- Step 5: Download Models ---
-RUN wget -O ./models/unet/flux1-dev-kontext_fp8_scaled.safensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/flux1-dev-kontext_fp8_scaled.safensors && \
-    wget -O ./models/clip/t5xxl_fp16.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/t5xxl_fp16.safetensors && \
-    wget -O ./models/clip/clip_l.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/clip_l.safetensors && \
-    wget -O ./models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-kontext-fp8/resolve/main/ae.safetensors
+# Download the CLIP-L text encoder
+RUN wget -O models/clip/clip_l.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors
 
-# --- Step 6: Set the final command ---
-CMD ["python", "-u", "/src/rp_handler.py"]
+# Download the T5-XXL text encoder (FP8 version)
+RUN wget -O models/t5/t5xxl_fp8_e4m3fn_scaled.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors
+
+# Download the VAE model
+RUN wget -O models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev/resolve/main/ae.safetensors
+
+# The base image has an entrypoint that will automatically start the RunPod handler script.
