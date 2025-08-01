@@ -1,6 +1,7 @@
+runpod
 torch
 diffusers
 transformers
-runpod
 accelerate
+bitsandbytes
 Pillow
