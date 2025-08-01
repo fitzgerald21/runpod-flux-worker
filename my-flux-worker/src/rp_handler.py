@@ -12,15 +12,19 @@ from comfy_runner import ComfyRunner
 # This will start the ComfyUI server in the background.
 runner = ComfyRunner()
 
+def find_node_and_set_widget_value(workflow, node_id, widget_index=0, value=None):
+    """Helper function to find a node by ID and update a widget's value."""
+    for node in workflow.get("nodes", []):
+        if str(node.get("id")) == str(node_id):
+            if "widgets_values" in node and len(node["widgets_values"]) > widget_index:
+                node["widgets_values"][widget_index] = value
+                print(f"Updated widget {widget_index} for node {node_id} to '{value}'")
+                return True
+    return False
+
 def handler(job):
     """
     This is the main handler function that Runpod will call.
-
-    Args:
-        job (dict): A dictionary containing the job input.
-
-    Returns:
-        dict: A dictionary containing the output image (base64) or an error.
     """
     job_input = job.get('input', {})
 
@@ -35,17 +39,13 @@ def handler(job):
 
     # --- Prepare Input Image ---
     try:
-        # Decode the base64 image
         image_data = base64.b64decode(image_b64)
-        # Use PIL to open the image data
         image = Image.open(BytesIO(image_data))
         
-        # Define the path to save the input image
         input_dir = "/ComfyUI/input"
         os.makedirs(input_dir, exist_ok=True)
         input_image_path = os.path.join(input_dir, "input_image.png")
         
-        # Save the image in a format ComfyUI can read
         image.save(input_image_path)
         print(f"Input image saved to: {input_image_path}")
         
@@ -58,12 +58,15 @@ def handler(job):
         with open('/workflow_api.json', 'r') as f:
             workflow = json.load(f)
 
-        # Find the prompt node (ID 9) and set the text
-        workflow['9']['inputs']['text'] = prompt
+        # CORRECTED: Find the prompt node (ID 9) and set its text widget
+        # The prompt is the first widget in the CLIPTextEncode node.
+        if not find_node_and_set_widget_value(workflow, 9, 0, prompt):
+            return {'error': 'Could not find prompt node (ID 9) in workflow.'}
 
-        # Find the LoadImage node (ID 24) and set the image filename
-        # ComfyUI's LoadImage node looks for files in its 'input' directory
-        workflow['24']['inputs']['image'] = "input_image.png"
+        # CORRECTED: Find the LoadImage node (ID 24) and set the image filename
+        # The filename is the first widget in the LoadImage node.
+        if not find_node_and_set_widget_value(workflow, 24, 0, "input_image.png"):
+            return {'error': 'Could not find Load Image node (ID 24) in workflow.'}
 
     except Exception as e:
         print(f"Error loading or modifying workflow: {e}")
@@ -71,7 +74,10 @@ def handler(job):
 
     # --- Run the Workflow ---
     try:
-        generated_image_paths = runner.run_workflow(workflow)
+        # NOTE: The workflow must be converted to the "prompt" format for the API call.
+        # This creates a dictionary where keys are node IDs.
+        prompt_workflow = {str(node["id"]): node for node in workflow["nodes"]}
+        generated_image_paths = runner.run_workflow(prompt_workflow)
 
         if not generated_image_paths:
             return {'error': 'Image generation failed, no output from ComfyUI.'}
@@ -82,13 +88,10 @@ def handler(job):
         if not os.path.exists(output_image_path):
             return {'error': f'Generated image file not found at path: {output_image_path}'}
             
-        # Read the generated image and encode it as base64
         with open(output_image_path, 'rb') as img_file:
             output_b64 = base64.b64encode(img_file.read()).decode('utf-8')
 
-        # Clean up the generated file
         os.remove(output_image_path)
-
         return {'image': output_b64}
 
     except Exception as e:
